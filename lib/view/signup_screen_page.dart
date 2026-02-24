@@ -27,119 +27,130 @@ class _SignupScreenPageState extends State<SignupScreenPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
-        children: [
-          Transform.flip(
-            flipX: true,
-            child: Container(
-              alignment: Alignment.center,
-              child: Image.asset(
-                "assets/images/logincontainer.png",
-                fit: BoxFit.fitWidth,
-                width: 380,
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            Transform.flip(
+              flipX: true,
+              child: Container(
+                alignment: Alignment.center,
+                child: Image.asset(
+                  "assets/images/logincontainer.png",
+                  fit: BoxFit.fitWidth,
+                  width: 380,
+                ),
               ),
             ),
-          ),
-          SizedBox(height: 20),
-          Text(
-            "SignUp Now",
-            style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 10),
-          Text(
-            "Please fill the details and create account",
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 10),
-          GestureDetector(
-            onTap: () async {
-              selectedImage = await picker.pickImage(
-                source: ImageSource.gallery,
-              );
-              log(selectedImage!.path);
-              setState(() {});
-            },
-            child: Container(
-              padding: EdgeInsets.all(2),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(40),
-                child:
-                    (selectedImage == null)
-                        ? Image.network(
-                          "https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png",
-                          width: 100,
-                          height: 100,
-                          fit: BoxFit.cover,
-                        )
-                        : Image.file(
-                          File(selectedImage!.path),
-                          width: 100,
-                          height: 100,
-                        ),
+            SizedBox(height: 20),
+            Text(
+              "SignUp Now",
+              style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "Please fill the details and create account",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 10),
+            GestureDetector(
+              onTap: () async {
+                selectedImage = await picker.pickImage(
+                  source: ImageSource.gallery,
+                );
+                log(selectedImage!.path);
+                setState(() {});
+              },
+              child: Container(
+                padding: EdgeInsets.all(2),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(40),
+                  child:
+                      (selectedImage == null)
+                          ? Image.network(
+                            "https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png",
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.cover,
+                          )
+                          : Image.file(
+                            File(selectedImage!.path),
+                            width: 100,
+                            height: 100,
+                          ),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10),
-            child: TextField(
-              controller: nameController,
-              decoration: InputDecoration(
-                hintText: "Enter Name",
-                border: OutlineInputBorder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20.0,
+                vertical: 10,
+              ),
+              child: TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  hintText: "Enter Name",
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10),
-            child: TextField(
-              controller: emailController,
-              decoration: InputDecoration(
-                hintText: "Enter Email",
-                border: OutlineInputBorder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20.0,
+                vertical: 10,
+              ),
+              child: TextField(
+                controller: emailController,
+                decoration: InputDecoration(
+                  hintText: "Enter Email",
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10),
-            child: TextField(
-              controller: passwordController,
-              decoration: InputDecoration(
-                hintText: "Enter Password",
-                border: OutlineInputBorder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20.0,
+                vertical: 10,
+              ),
+              child: TextField(
+                controller: passwordController,
+                decoration: InputDecoration(
+                  hintText: "Enter Password",
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
-          ),
-          SizedBox(height: 30),
-          ElevatedButton(
-            onPressed: () {
-              if (isRegisterLoading) {
-                signupData();
-              }
-            },
+            SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: () {
+                if (!isRegisterLoading) {
+                  signupData();
+                }
+              },
 
-            style: ButtonStyle(
-              minimumSize: WidgetStatePropertyAll(Size(380, 50)),
-              backgroundColor: WidgetStatePropertyAll(Colors.lightBlue),
+              style: ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(380, 50)),
+                backgroundColor: WidgetStatePropertyAll(Colors.lightBlue),
+              ),
+              child:
+                  (isRegisterLoading)
+                      ? CircularProgressIndicator()
+                      : Text(
+                        "SignUp",
+                        style: TextStyle(color: Colors.white, fontSize: 18),
+                      ),
             ),
-            child:
-                (isRegisterLoading)
-                    ? CircularProgressIndicator()
-                    : Text(
-                      "SignUp",
-                      style: TextStyle(color: Colors.white, fontSize: 18),
-                    ),
-          ),
-          SizedBox(height: 10),
-          GestureDetector(
-            onTap: () {
-              Navigator.of(context).pop();
-            },
-            child: Text(
-              "Already have an account? Login",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+            SizedBox(height: 10),
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                "Already have an account? Login",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

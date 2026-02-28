@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 0.1.0
 
 environment:
-  sdk: ^3.7.0-323.0.dev
+  sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
   cloud_firestore: ^6.1.2
@@ -14,12 +14,15 @@ dependencies:
   flutter:
     sdk: flutter
   google_generative_ai: ^0.4.7
+  flutter_markdown: ^0.7.0
   http: ^1.6.0
   image_picker: ^1.2.0
   intl: ^0.20.2
   jiffy: ^6.4.4
   path_provider: ^2.1.5
   shared_preferences: ^2.5.3
+  flutter_bloc: ^9.1.1
+  animated_text_kit: ^4.3.0
 
 dev_dependencies:
   flutter_test:

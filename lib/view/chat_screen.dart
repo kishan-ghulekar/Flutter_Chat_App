@@ -1,17 +1,44 @@
-import 'dart:developer';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:async';
 
-import 'package:chat_app/controller/chat_controller.dart';
-import 'package:chat_app/controller/user_controller.dart';
-import 'package:chat_app/view/login_screen.dart';
+import 'package:chat_app/Cubit/search_cubit.dart';
+import 'package:chat_app/Cubit/search_state.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
-// ─── GEMINI CONFIG ────────────────────────────────────────────────────────────
-const String _geminiApiKey = "AIzaSyAjH1zEBFjSgR87URs-anGIZdGyu7ByUCI";
-// ──────────────────────────────────────────────────────────────────────────────
+// ─── Model ────────────────────────────────────────────────────────────────────
+
+class _ChatMessage {
+  final String message;
+  final String role;
+  final DateTime timestamp;
+
+  const _ChatMessage({
+    required this.message,
+    required this.role,
+    required this.timestamp,
+  });
+
+  bool get isUser => role == 'user';
+
+  factory _ChatMessage.fromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>;
+    return _ChatMessage(
+      message: d['message'] ?? '',
+      role: d['role'] ?? 'user',
+      timestamp: (d['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'message': message,
+        'role': role,
+        'timestamp': FieldValue.serverTimestamp(),
+      };
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -21,361 +48,566 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _messageController = TextEditingController();
-  final ChatController _chatController = ChatController();
-  final UserController _userController = UserController();
+  final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final CollectionReference _chatsRef =
+      FirebaseFirestore.instance.collection('chats');
 
-  bool _isGeminiTyping = false;
+  final List<_ChatMessage> _messages = [];
+  bool _isLoading = false;
+  bool _isClearing = false;
+  String? _pendingQuery;
+  StreamSubscription<QuerySnapshot>? _sub;
+
+  // ── Colors ─────────────────────────────────────────────────────────────────
+  static const _bg = Color(0xFFF5F7FA);
+  static const _appBarBg = Colors.white;
+  static const _userBubble = Color(0xFF4F7FFF);
+  static const _botBubble = Colors.white;
+  static const _inputBarBg = Colors.white;
+  static const _inputFieldBg = Color(0xFFF0F2F7);
+  static const _sendActive = Color(0xFF4F7FFF);
+  static const _sendInactive = Color(0xFFBEC5D1);
+  static const _textOnUser = Colors.white;
+  static const _textOnBot = Color(0xFF1A1D2E);
+  static const _subtleText = Color(0xFF9CA3AF);
+  static const _divider = Color(0xFFE8ECF4);
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() async {
-      await _userController.getUserData();
-    });
-  }
-
-  void _sendMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-
-    // ✅ Safe name — never allow API key or long strings as name
-    final String safeName = _getSafeName(_userController.name);
-
-    final Map<String, dynamic> userMsg = {
-      "profileImage": _userController.profileImage ?? "",
-      "userId": _userController.userId ?? "unknown",
-      "name": safeName,
-      "message": text,
-      "time": Timestamp.now(),
-      "isBot": false,
-    };
-
-    await _chatController.sendMessage(messageBody: userMsg);
-    _messageController.clear();
-    _scrollToBottom();
-
-    setState(() => _isGeminiTyping = true);
-
-    final geminiReply = await _callGeminiAPI(text);
-
-    final Map<String, dynamic> botMsg = {
-      "profileImage": "",
-      "userId": "gemini_bot",
-      "name": "Gemini AI",
-      "message": geminiReply,
-      "time": Timestamp.now(),
-      "isBot": true,
-    };
-
-    await _chatController.sendMessage(messageBody: botMsg);
-    setState(() => _isGeminiTyping = false);
-    _scrollToBottom();
-  }
-
-  /// ✅ Sanitize name — if it's suspicious (too long, looks like a key), use fallback
-  String _getSafeName(String? name) {
-    if (name == null || name.trim().isEmpty) return "User";
-    if (name.trim().length > 30) return "User"; // API keys are 39 chars
-    if (name.startsWith("AIza")) return "User"; // Gemini API key prefix
-    return name.trim();
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // GEMINI API — with 429 retry + model fallback
-  // ──────────────────────────────────────────────────────────────────────────
-  Future<String> _callGeminiAPI(String prompt) async {
-    final List<String> models = [
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-pro",
-    ];
-
-    for (final model in models) {
-      try {
-        final url =
-            "https://generativelanguage.googleapis.com/v1/models/$model:generateContent?key=$_geminiApiKey";
-
-        final response = await http.post(
-          Uri.parse(url),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode({
-            "contents": [
-              {
-                "parts": [
-                  {"text": prompt},
-                ],
-              },
-            ],
-            "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1024},
-          }),
-        );
-
-        log("Gemini [$model] status: ${response.statusCode}");
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final reply =
-              data["candidates"]?[0]?["content"]?["parts"]?[0]?["text"];
-          if (reply != null && reply.toString().isNotEmpty) {
-            return reply.toString().trim();
-          }
-        } else if (response.statusCode == 429) {
-          // ✅ Rate limited — parse retry delay and show friendly message
-          log("Gemini 429 on $model — quota exceeded");
-          final errData = jsonDecode(response.body);
-          final message = errData["error"]?["message"] ?? "";
-
-          // Extract retry delay if available
-          final retryMatch = RegExp(r'retry in (\d+)').firstMatch(message);
-          final retrySeconds = retryMatch?.group(1) ?? "60";
-
-          // Try next model before giving up
-          continue;
-        } else if (response.statusCode == 404) {
-          log("Model $model not found, trying next...");
-          continue;
-        } else {
-          log("Gemini error: ${response.body}");
-          final errData = jsonDecode(response.body);
-          return "⚠️ Error: ${errData["error"]?["message"] ?? "Unknown error"}";
-        }
-      } catch (e) {
-        log("Gemini exception [$model]: $e");
-        continue;
-      }
-    }
-
-    // All models exhausted
-    return "⚠️ Rate limit reached on all models.\n\n"
-        "Your free tier quota is exhausted for today. Options:\n"
-        "• Wait until tomorrow (free tier resets daily)\n"
-        "• Create a new API key at aistudio.google.com\n"
-        "• Enable billing on your Google Cloud project";
-  }
-
-  void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOut,
-        );
-      }
-    });
+    _listenToFirestore();
   }
 
   @override
+  void dispose() {
+    _inputController.dispose();
+    _scrollController.dispose();
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  void _listenToFirestore() {
+    _sub = _chatsRef
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(snap.docs.map(_ChatMessage.fromDoc));
+      });
+      _scrollToBottom();
+    });
+  }
+
+  Future<void> _save(_ChatMessage msg) => _chatsRef.add(msg.toMap());
+
+  void _sendMessage() {
+    final text = _inputController.text.trim();
+    if (text.isEmpty || _isLoading) return;
+
+    _pendingQuery = text;
+    _inputController.clear();
+    setState(() => _isLoading = true);
+
+    context.read<SearchCubit>().getSearchResponse(query: text);
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  String _formatTime(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final p = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $p';
+  }
+
+  // ── Clear Chat ─────────────────────────────────────────────────────────────
+
+  Future<void> _clearAllMessages() async {
+    setState(() => _isClearing = true);
+    try {
+      final snap = await _chatsRef.get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to clear: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isClearing = false);
+    }
+  }
+
+  void _confirmClear() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_rounded,
+                color: Colors.redAccent, size: 22),
+            SizedBox(width: 8),
+            Text(
+              'Clear Chat',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        content: const Text(
+          'This will permanently delete all messages from Firebase. This cannot be undone.',
+          style: TextStyle(color: Color(0xFF6B7280), fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF9CA3AF)),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _clearAllMessages();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Chat cleared successfully'),
+                    backgroundColor: Colors.redAccent,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
-      appBar: _buildAppBar(),
-      body: Column(
-        children: [Expanded(child: _buildChatArea()), _buildInputBar()],
+    return BlocListener<SearchCubit, SearchState>(
+      listener: (ctx, state) async {
+        if (state is SearchLoadedState) {
+          if (_pendingQuery != null) {
+            await _save(_ChatMessage(
+              message: _pendingQuery!,
+              role: 'user',
+              timestamp: DateTime.now(),
+            ));
+            _pendingQuery = null;
+          }
+          await _save(_ChatMessage(
+            message: state.res,
+            role: 'bot',
+            timestamp: DateTime.now(),
+          ));
+          if (mounted) setState(() => _isLoading = false);
+          _scrollToBottom();
+        } else if (state is SearchErrorState) {
+          if (mounted) setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(state.errorMsg)));
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _bg,
+        appBar: _buildAppBar(),
+        floatingActionButton: _messages.isEmpty
+            ? null
+            : _isClearing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.redAccent,
+                    ),
+                  )
+                : const Icon(
+                    Icons.delete_sweep_rounded,
+                    color: Colors.redAccent,
+                    size: 26,
+                  ),
+        floatingActionButtonLocation: const CenterRightFabLocation(),
+        body: Column(
+          children: [
+            Expanded(child: _buildList()),
+            if (_isLoading) _buildTypingBubble(),
+            _buildInputBar(),
+          ],
+        ),
       ),
     );
   }
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      toolbarHeight: 70,
-      backgroundColor: Colors.white,
-      elevation: 1,
+      backgroundColor: _appBarBg,
+      elevation: 0,
+      centerTitle: false,
+      titleSpacing: 16,
       title: Row(
         children: [
           Container(
-            height: 46,
-            width: 46,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
-                colors: [Color(0xFF4285F4), Color(0xFF9B59B6)],
+                colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.blue.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  color: const Color(0xFF4F7FFF).withOpacity(0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
             child: const Center(
-              child: Text("✨", style: TextStyle(fontSize: 22)),
+              child: Text(
+                '✦',
+                style: TextStyle(fontSize: 18, color: Colors.white),
+              ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Gemini Chat",
+                'AI Assistant',
                 style: TextStyle(
-                  color: Colors.black87,
-                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A1D2E),
                   fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.1,
                 ),
               ),
-              Text(
-                _isGeminiTyping ? "Gemini is typing..." : "AI Powered",
-                style: TextStyle(
-                  color: _isGeminiTyping ? Colors.green : Colors.grey,
-                  fontSize: 12,
-                ),
+              Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: _isLoading
+                          ? const Color(0xFFF59E0B)
+                          : const Color(0xFF22C55E),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: Text(
+                      _isLoading ? 'Thinking…' : 'Online',
+                      key: ValueKey(_isLoading),
+                      style: const TextStyle(
+                        color: _subtleText,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ],
       ),
-      actions: [
-        IconButton(
-          onPressed: () {
-            FirebaseAuth.instance.signOut();
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-            );
-          },
-          icon: const Icon(Icons.logout, color: Colors.black54),
-        ),
-      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(color: _divider, height: 1),
+      ),
     );
   }
 
-  Widget _buildChatArea() {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFEFF3FF), Color(0xFFF8F0FF)],
+  Widget _buildList() {
+    if (_messages.isEmpty && !_isLoading) return _buildEmptyState();
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      itemCount: _messages.length,
+      itemBuilder: (ctx, i) => _AnimatedBubble(
+        key: ValueKey(
+            '${_messages[i].role}_${_messages[i].timestamp.millisecondsSinceEpoch}'),
+        child: _buildBubble(_messages[i]),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4F7FFF).withOpacity(0.3),
+                  blurRadius: 28,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Text(
+                '✦',
+                style: TextStyle(fontSize: 34, color: Colors.white),
               ),
             ),
           ),
-        ),
-        StreamBuilder<QuerySnapshot>(
-          stream: _chatController.getMessages(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+          const SizedBox(height: 22),
+          const Text(
+            'Start the conversation',
+            style: TextStyle(
+              color: Color(0xFF1A1D2E),
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Ask me anything — I\'m here to help.',
+            style: TextStyle(color: _subtleText, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
 
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text("✨", style: TextStyle(fontSize: 48)),
-                    const SizedBox(height: 12),
-                    Text(
-                      "Say something to Gemini AI!",
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 16,
-                      ),
+  Widget _buildBubble(_ChatMessage msg) {
+    final isUser = msg.isUser;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isUser) ...[
+            _BotAvatar(),
+            const SizedBox(width: 10),
+          ],
+          Flexible(
+            child: Column(
+              crossAxisAlignment:
+                  isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.72,
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isUser ? _userBubble : _botBubble,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isUser ? 20 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 20),
                     ),
-                  ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: isUser
+                            ? const Color(0xFF4F7FFF).withOpacity(0.25)
+                            : Colors.black.withOpacity(0.07),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                    border:
+                        isUser ? null : Border.all(color: _divider, width: 1.2),
+                  ),
+                  child: isUser
+                      ? Text(
+                          msg.message,
+                          style: const TextStyle(
+                            color: _textOnUser,
+                            fontSize: 15,
+                            height: 1.5,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        )
+                      : MarkdownBody(
+                          data: msg.message,
+                          styleSheet: _mdStyle(),
+                        ),
                 ),
-              );
-            }
+                const SizedBox(height: 5),
+                Text(
+                  _formatTime(msg.timestamp),
+                  style: const TextStyle(
+                    color: _subtleText,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isUser) ...[
+            const SizedBox(width: 10),
+            _UserAvatar(),
+          ],
+        ],
+      ),
+    );
+  }
 
-            final messages = snapshot.data!.docs;
-
-            return ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              itemCount: messages.length + (_isGeminiTyping ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (_isGeminiTyping && index == messages.length) {
-                  return _typingIndicatorBubble();
-                }
-
-                final data = messages[index];
-                final bool isBot = (data["userId"] == "gemini_bot");
-
-                return messageCard(
-                  userId: data["userId"] ?? "",
-                  profileImage: data["profileImage"] ?? "",
-                  // ✅ Always sanitize name from Firestore too
-                  name: _getSafeName(data["name"]),
-                  message: data["message"] ?? "",
-                  time: data["time"],
-                  docId: messages[index].id,
-                  isBot: isBot,
-                );
-              },
-            );
-          },
-        ),
-      ],
+  Widget _buildTypingBubble() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _BotAvatar(),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: _botBubble,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+                bottomRight: Radius.circular(20),
+                bottomLeft: Radius.circular(4),
+              ),
+              border: Border.all(color: _divider, width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.07),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const _TypingDots(),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildInputBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 12,
+        top: 12,
+        bottom: MediaQuery.of(context).padding.bottom + 12,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _inputBarBg,
+        border: const Border(top: BorderSide(color: _divider, width: 1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, -3),
           ),
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              constraints: const BoxConstraints(maxHeight: 120),
               decoration: BoxDecoration(
-                color: const Color(0xFFF0F2F5),
-                borderRadius: BorderRadius.circular(30),
+                color: _inputFieldBg,
+                borderRadius: BorderRadius.circular(24),
               ),
               child: TextField(
-                controller: _messageController,
+                controller: _inputController,
                 maxLines: null,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _sendMessage(),
+                style: const TextStyle(
+                  color: _textOnBot,
+                  fontSize: 15,
+                  height: 1.45,
+                ),
                 decoration: const InputDecoration(
-                  hintText: "Ask Gemini anything...",
+                  hintText: 'Ask anything…',
+                  hintStyle: TextStyle(color: _subtleText, fontSize: 15),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   border: InputBorder.none,
-                  hintStyle: TextStyle(color: Colors.grey),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 10),
           GestureDetector(
-            onTap: _isGeminiTyping ? null : _sendMessage,
+            onTap: _isLoading ? null : _sendMessage,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.all(13),
+              duration: const Duration(milliseconds: 220),
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors:
-                      _isGeminiTyping
-                          ? [Colors.grey.shade400, Colors.grey.shade500]
-                          : [const Color(0xFF4285F4), const Color(0xFF9B59B6)],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+                color: _isLoading ? _sendInactive : _sendActive,
+                boxShadow: _isLoading
+                    ? []
+                    : [
+                        BoxShadow(
+                          color: _sendActive.withOpacity(0.4),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
               ),
               child: const Icon(
-                Icons.send_rounded,
+                Icons.arrow_upward_rounded,
                 color: Colors.white,
-                size: 20,
+                size: 22,
               ),
             ),
           ),
@@ -384,215 +616,212 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _typingIndicatorBubble() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          _geminiAvatar(small: true),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(18),
-                topRight: Radius.circular(18),
-                bottomRight: Radius.circular(18),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(3, (i) => _dot(i)),
-            ),
-          ),
-        ],
+  MarkdownStyleSheet _mdStyle() {
+    return MarkdownStyleSheet(
+      p: const TextStyle(
+        color: _textOnBot,
+        fontSize: 15,
+        height: 1.55,
+      ),
+      code: TextStyle(
+        color: const Color(0xFF4F7FFF),
+        backgroundColor: const Color(0xFFEEF2FF),
+        fontSize: 13.5,
+        fontFamily: 'monospace',
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: const Color(0xFFF3F4F8),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _divider),
+      ),
+      codeblockPadding: const EdgeInsets.all(14),
+      strong: const TextStyle(
+        color: _textOnBot,
+        fontWeight: FontWeight.w700,
+      ),
+      em: const TextStyle(
+        color: Color(0xFF6B7280),
+        fontStyle: FontStyle.italic,
+      ),
+      h1: const TextStyle(
+        color: _textOnBot,
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+      ),
+      h2: const TextStyle(
+        color: _textOnBot,
+        fontSize: 17,
+        fontWeight: FontWeight.w600,
+      ),
+      h3: const TextStyle(
+        color: _textOnBot,
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+      ),
+      listBullet: const TextStyle(color: Color(0xFF4F7FFF)),
+      blockquoteDecoration: const BoxDecoration(
+        border: Border(
+          left: BorderSide(color: Color(0xFF4F7FFF), width: 3),
+        ),
+        color: Color(0xFFEEF2FF),
+      ),
+      blockquote: const TextStyle(
+        color: Color(0xFF6B7280),
+        fontStyle: FontStyle.italic,
       ),
     );
   }
+}
 
-  Widget _dot(int index) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 600 + index * 200),
-      builder: (context, value, child) {
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: Color.lerp(
-              Colors.grey.shade400,
-              const Color(0xFF4285F4),
-              value,
-            ),
-            shape: BoxShape.circle,
-          ),
-        );
-      },
-    );
-  }
+// ─── Avatars ──────────────────────────────────────────────────────────────────
 
-  Widget messageCard({
-    required String userId,
-    required String profileImage,
-    required String name,
-    required String message,
-    required Timestamp time,
-    required String docId,
-    required bool isBot,
-  }) {
-    final bool isMe = _userController.userId == userId && !isBot;
-
-    // ✅ Override name for bot messages always
-    final String displayName = isBot ? "Gemini AI" : name;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-      child: Row(
-        mainAxisAlignment:
-            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!isMe) ...[
-            isBot ? _geminiAvatar(small: true) : _userAvatar(profileImage),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                gradient:
-                    isBot
-                        ? const LinearGradient(
-                          colors: [Color(0xFFEBF0FF), Color(0xFFF3EBFF)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                        : null,
-                color:
-                    isBot
-                        ? null
-                        : isMe
-                        ? const Color(0xFFDCF8C6)
-                        : Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(18),
-                  topRight: const Radius.circular(18),
-                  bottomLeft:
-                      isMe
-                          ? const Radius.circular(18)
-                          : const Radius.circular(0),
-                  bottomRight:
-                      isMe
-                          ? const Radius.circular(0)
-                          : const Radius.circular(18),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                border:
-                    isBot
-                        ? Border.all(color: const Color(0xFFD0BBFF), width: 1)
-                        : null,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ✅ FIXED: Name row uses Flexible to prevent overflow
-                  if (!isMe)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isBot)
-                            const Text("✨ ", style: TextStyle(fontSize: 12)),
-                          // ✅ Flexible prevents overflow on long names
-                          Flexible(
-                            child: Text(
-                              displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color:
-                                    isBot
-                                        ? const Color(0xFF7B4FD4)
-                                        : Colors.blue,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Colors.black87,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Text(
-                      TimeOfDay.fromDateTime(time.toDate()).format(context),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _geminiAvatar({bool small = false}) {
-    final size = small ? 30.0 : 40.0;
+class _BotAvatar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      height: size,
-      width: size,
+      width: 32,
+      height: 32,
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(
-          colors: [Color(0xFF4285F4), Color(0xFF9B59B6)],
+          colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
         ),
       ),
-      child: Center(
-        child: Text("✨", style: TextStyle(fontSize: small ? 14 : 18)),
+      child: const Center(
+        child: Text('✦', style: TextStyle(fontSize: 14, color: Colors.white)),
       ),
     );
   }
+}
 
-  Widget _userAvatar(String profileImage) {
-    return CircleAvatar(
-      radius: 16,
-      backgroundImage:
-          profileImage.isEmpty
-              ? const NetworkImage(
-                "https://play-lh.googleusercontent.com/Il1s7VYRV23p_J7m1rS8y96ldviGz0aCF31d_fLN1Yjaa8MrZGaNhqGe7uD7mHvXR2vu",
-              )
-              : NetworkImage(profileImage),
+class _UserAvatar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFFE8ECF4),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: const Icon(
+        Icons.person_rounded,
+        size: 18,
+        color: Color(0xFF9CA3AF),
+      ),
     );
+  }
+}
+
+// ─── Typing Dots ──────────────────────────────────────────────────────────────
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots> {
+  Timer? _timer;
+  int _step = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 360), (_) {
+      if (mounted) setState(() => _step = (_step + 1) % 3);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        final active = _step == i;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: active ? 9 : 7,
+          height: active ? 9 : 7,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active ? const Color(0xFF4F7FFF) : const Color(0xFFCDD3E0),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+// ─── Animated Bubble Wrapper ──────────────────────────────────────────────────
+
+class _AnimatedBubble extends StatefulWidget {
+  final Widget child;
+
+  const _AnimatedBubble({required this.child, super.key});
+
+  @override
+  State<_AnimatedBubble> createState() => _AnimatedBubbleState();
+}
+
+class _AnimatedBubbleState extends State<_AnimatedBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.12),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
+}
+
+class CenterRightFabLocation extends FloatingActionButtonLocation {
+  const CenterRightFabLocation();
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+    final scaffoldSize = scaffoldGeometry.scaffoldSize;
+    final fabSize = scaffoldGeometry.floatingActionButtonSize;
+
+    final double x = scaffoldSize.width - fabSize.width - 16; // right margin
+    final double y =
+        (scaffoldSize.height - fabSize.height) / 2; // vertical center
+
+    return Offset(x, y);
   }
 }

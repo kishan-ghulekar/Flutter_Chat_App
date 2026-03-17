@@ -1,13 +1,13 @@
 import 'package:chat_app/view/chat_screen.dart';
 import 'package:chat_app/view/login_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../controller/user_controller.dart';
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatefulWidget {
   @override
-  SplashScreen({super.key});
+  const SplashScreen({super.key});
 
+  @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 

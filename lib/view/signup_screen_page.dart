@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 class SignupScreenPage extends StatefulWidget {
   const SignupScreenPage({super.key});
 
+  @override
   State<SignupScreenPage> createState() => _SignupScreenPageState();
 }
 
@@ -64,19 +65,18 @@ class _SignupScreenPageState extends State<SignupScreenPage> {
                 padding: EdgeInsets.all(2),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(40),
-                  child:
-                      (selectedImage == null)
-                          ? Image.network(
-                            "https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png",
-                            width: 100,
-                            height: 100,
-                            fit: BoxFit.cover,
-                          )
-                          : Image.file(
-                            File(selectedImage!.path),
-                            width: 100,
-                            height: 100,
-                          ),
+                  child: (selectedImage == null)
+                      ? Image.network(
+                          "https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png",
+                          width: 100,
+                          height: 100,
+                          fit: BoxFit.cover,
+                        )
+                      : Image.file(
+                          File(selectedImage!.path),
+                          width: 100,
+                          height: 100,
+                        ),
                 ),
               ),
             ),
@@ -126,18 +126,16 @@ class _SignupScreenPageState extends State<SignupScreenPage> {
                   signupData();
                 }
               },
-
               style: ButtonStyle(
                 minimumSize: WidgetStatePropertyAll(Size(380, 50)),
                 backgroundColor: WidgetStatePropertyAll(Colors.lightBlue),
               ),
-              child:
-                  (isRegisterLoading)
-                      ? CircularProgressIndicator()
-                      : Text(
-                        "SignUp",
-                        style: TextStyle(color: Colors.white, fontSize: 18),
-                      ),
+              child: (isRegisterLoading)
+                  ? CircularProgressIndicator()
+                  : Text(
+                      "SignUp",
+                      style: TextStyle(color: Colors.white, fontSize: 18),
+                    ),
             ),
             SizedBox(height: 10),
             GestureDetector(
@@ -188,8 +186,8 @@ class _SignupScreenPageState extends State<SignupScreenPage> {
 
       await loginController.storeUserDataToDatabase(userData: userDataObj);
 
-      UserController _userController = UserController();
-      _userController.setUserData(
+      UserController userController = UserController();
+      userController.setUserData(
         profileImage: generateImageUrl,
         name: nameController.text.trim(),
         emailId: emailController.text.trim(),

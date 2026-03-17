@@ -257,10 +257,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       color: Colors.redAccent,
                     ),
                   )
-                : const Icon(
-                    Icons.delete_sweep_rounded,
-                    color: Colors.redAccent,
-                    size: 26,
+                : FloatingActionButton(
+                    onPressed: _confirmClear,
+                    backgroundColor: Colors.white,
+                    elevation: 2,
+                    child: const Icon(
+                      Icons.delete_sweep_rounded,
+                      color: Colors.redAccent,
+                      size: 26,
+                    ),
                   ),
         floatingActionButtonLocation: const CenterRightFabLocation(),
         body: Column(
@@ -282,29 +287,38 @@ class _ChatScreenState extends State<ChatScreen> {
       titleSpacing: 16,
       title: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF4F7FFF).withOpacity(0.35),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                '✦',
-                style: TextStyle(fontSize: 18, color: Colors.white),
-              ),
+          // Container(
+          //   width: 42,
+          //   height: 42,
+          //   decoration: BoxDecoration(
+          //     shape: BoxShape.circle,
+          //     gradient: const LinearGradient(
+          //       colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
+          //       begin: Alignment.topLeft,
+          //       end: Alignment.bottomRight,
+          //     ),
+          //     boxShadow: [
+          //       BoxShadow(
+          //         color: const Color(0xFF4F7FFF).withOpacity(0.35),
+          //         blurRadius: 10,
+          //         offset: const Offset(0, 4),
+          //       ),
+          //     ],
+          //   ),
+          //   child: const Center(
+          //     child: Text(
+          //       '✦',
+          //       style: TextStyle(fontSize: 18, color: Colors.white),
+          //     ),
+          //   ),
+          // ),
+          // ✅ REPLACE WITH THIS
+          ClipOval(
+            child: Image.asset(
+              'assets/images/SmartMateAI.jpeg',
+              width: 42,
+              height: 42,
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(width: 12),
@@ -312,7 +326,7 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'AI Assistant',
+                'SmartMate AI',
                 style: TextStyle(
                   color: Color(0xFF1A1D2E),
                   fontSize: 16,
@@ -379,27 +393,13 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF4F7FFF).withOpacity(0.3),
-                  blurRadius: 28,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                '✦',
-                style: TextStyle(fontSize: 34, color: Colors.white),
-              ),
+          // ✅ Use your image here too
+          ClipOval(
+            child: Image.asset(
+              'assets/images/SmartMateAI.jpeg',
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(height: 22),
@@ -674,21 +674,16 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 // ─── Avatars ──────────────────────────────────────────────────────────────────
-
+// ✅ Replace the gradient container with:
 class _BotAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [Color(0xFF4F7FFF), Color(0xFF9B6FFF)],
-        ),
-      ),
-      child: const Center(
-        child: Text('✦', style: TextStyle(fontSize: 14, color: Colors.white)),
+    return ClipOval(
+      child: Image.asset(
+        'assets/images/SmartMateAI.jpeg',
+        width: 32,
+        height: 32,
+        fit: BoxFit.cover,
       ),
     );
   }

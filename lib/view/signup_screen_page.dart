@@ -157,52 +157,81 @@ class _SignupScreenPageState extends State<SignupScreenPage> {
     isRegisterLoading = true;
     setState(() {});
 
-    String fileName =
-        DateTime.now().microsecondsSinceEpoch.toString() + selectedImage!.name;
+    try {
+      String imageUrl = '';
 
-    await loginController.uploadImage(
-      fileName: fileName,
-      file: File(selectedImage!.path),
-    );
+      // ── image is optional ──
+      if (selectedImage != null) {
+        final fileName =
+            '${DateTime.now().microsecondsSinceEpoch}${selectedImage!.name}';
 
-    String generateImageUrl = await loginController.getImageUrl(
-      fileName: fileName,
-    );
-    log("GENERATED IMAGE URL: $generateImageUrl");
+        final results = await Future.wait([
+          // upload + get URL in parallel with auth
+          loginController
+              .uploadImage(fileName: fileName, file: File(selectedImage!.path))
+              .then((_) => loginController.getImageUrl(fileName: fileName)),
 
-    //Register user with email and password
-    String userId = await loginController.registerUser(
-      context: context,
-      email: emailController.text.trim(),
-      password: passwordController.text.trim(),
-    );
-    if (userId != "") {
-      Map<String, dynamic> userDataObj = {
-        "name": nameController.text.trim(),
-        "email": emailController.text.trim(),
-        "profile_image": generateImageUrl,
-        "userId": userId,
-      };
+          loginController.registerUser(
+            context: context,
+            email: emailController.text.trim(),
+            password: passwordController.text.trim(),
+          ),
+        ]);
 
-      await loginController.storeUserDataToDatabase(userData: userDataObj);
+        imageUrl = results[0] as String;
+        final String userId = results[1] as String;
 
-      UserController userController = UserController();
-      userController.setUserData(
-        profileImage: generateImageUrl,
-        name: nameController.text.trim(),
-        emailId: emailController.text.trim(),
-        userId: userId,
-        isLoggedIn: true,
-      );
+        if (userId.isEmpty) return;
 
-      nameController.clear();
-      emailController.clear();
-      passwordController.clear();
-      selectedImage = null;
+        await _finishSignup(imageUrl: imageUrl, userId: userId);
+      } else {
+        // ── no image: just register ──
+        final String userId = await loginController.registerUser(
+          context: context,
+          email: emailController.text.trim(),
+          password: passwordController.text.trim(),
+        );
 
-      Navigator.of(context).pop();
+        if (userId.isEmpty) return;
+
+        await _finishSignup(imageUrl: '', userId: userId);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Signup failed: $e')),
+        );
+      }
+    } finally {
+      isRegisterLoading = false;
+      if (mounted) setState(() {});
     }
-    isRegisterLoading = false;
-    setState(() {});
+  }
+
+  Future<void> _finishSignup({
+    required String imageUrl,
+    required String userId,
+  }) async {
+    await loginController.storeUserDataToDatabase(userData: {
+      'name': nameController.text.trim(),
+      'email': emailController.text.trim(),
+      'profile_image': imageUrl, // empty string if no image picked
+      'userId': userId,
+    });
+
+    UserController().setUserData(
+      profileImage: imageUrl,
+      name: nameController.text.trim(),
+      emailId: emailController.text.trim(),
+      userId: userId,
+      isLoggedIn: true,
+    );
+
+    nameController.clear();
+    emailController.clear();
+    passwordController.clear();
+    selectedImage = null;
+
+    if (mounted) Navigator.of(context).pop();
   }
 }

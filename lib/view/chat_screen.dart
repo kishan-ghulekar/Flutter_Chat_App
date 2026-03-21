@@ -352,7 +352,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'SmartMate AI',
+                        'Smarty AI',
                         style: TextStyle(
                           color: _T.textPrimary,
                           fontSize: 16,
@@ -571,7 +571,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   height: 1.5,
                   fontWeight: FontWeight.w400,
                 ),
-                cursorColor: _T.accent,
+                cursorColor: Colors.white,
                 decoration: const InputDecoration(
                   hintText: 'Ask anything…',
                   hintStyle: TextStyle(
@@ -598,58 +598,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  MarkdownStyleSheet _mdStyle() {
-    return MarkdownStyleSheet(
-      p: const TextStyle(
-        color: _T.textPrimary,
-        fontSize: 15,
-        height: 1.6,
-        fontWeight: FontWeight.w400,
-      ),
-      code: TextStyle(
-        color: _T.accentSoft,
-        backgroundColor: const Color(0xFF1E2235),
-        fontSize: 13,
-        fontFamily: 'monospace',
-      ),
-      codeblockDecoration: BoxDecoration(
-        color: const Color(0xFF141825),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _T.border, width: 1),
-      ),
-      codeblockPadding: const EdgeInsets.all(14),
-      strong: const TextStyle(
-        color: _T.textPrimary,
-        fontWeight: FontWeight.w700,
-      ),
-      em: const TextStyle(
-        color: _T.textSecondary,
-        fontStyle: FontStyle.italic,
-      ),
-      h1: const TextStyle(
-          color: _T.textPrimary, fontSize: 20, fontWeight: FontWeight.w700),
-      h2: const TextStyle(
-          color: _T.textPrimary, fontSize: 17, fontWeight: FontWeight.w600),
-      h3: const TextStyle(
-          color: _T.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
-      listBullet: const TextStyle(color: _T.accentSoft),
-      blockquoteDecoration: BoxDecoration(
-        color: const Color(0xFF1A1E2E),
-        border: const Border(
-          left: BorderSide(color: _T.accent, width: 3),
-        ),
-        borderRadius: const BorderRadius.only(
-          topRight: Radius.circular(6),
-          bottomRight: Radius.circular(6),
-        ),
-      ),
-      blockquote: const TextStyle(
-        color: _T.textSecondary,
-        fontStyle: FontStyle.italic,
       ),
     );
   }
@@ -1006,7 +954,7 @@ class _EmptyStateState extends State<_EmptyState>
           ),
           const SizedBox(height: 26),
           const Text(
-            'SmartMate AI',
+            'Smarty AI',
             style: TextStyle(
               color: _T.textPrimary,
               fontSize: 22,
@@ -1086,60 +1034,43 @@ class _SendButton extends StatelessWidget {
     final canSend = hasText && !isLoading;
 
     return GestureDetector(
-        onTap: canSend ? onTap : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOut,
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: canSend
-                ? const LinearGradient(
-                    colors: [_T.userBubbleEnd, _T.userBubbleStart],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  )
-                : null,
-            color: canSend ? null : _T.surfaceElevated,
-            boxShadow: canSend
-                ? [
-                    BoxShadow(
-                      color: _T.userBubbleStart.withOpacity(0.55),
-                      blurRadius: 20,
-                      spreadRadius: 0,
-                      offset: const Offset(0, 4),
-                    ),
-                    BoxShadow(
-                      color: _T.userBubbleEnd.withOpacity(0.30),
-                      blurRadius: 32,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : const [
-                    BoxShadow(
-                      color: Colors.transparent,
-                      blurRadius: 0,
-                      spreadRadius: 0,
-                      offset: Offset.zero,
-                    ),
-                    BoxShadow(
-                      color: Colors.transparent,
-                      blurRadius: 0,
-                      spreadRadius: 0,
-                      offset: Offset.zero,
-                    ),
-                  ],
-            border: Border.all(
-              color: canSend ? Colors.transparent : _T.border,
-              width: 1,
+      onTap: canSend ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: canSend ? _T.accent : _T.surfaceElevated,
+          boxShadow: canSend
+              ? [
+                  BoxShadow(
+                    color: _T.accent.withOpacity(0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+          border: Border.all(
+            color: canSend ? Colors.transparent : _T.border,
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 120),
+            scale: canSend ? 1.0 : 0.9,
+            child: Icon(
+              Icons.send_rounded,
+              size: 20,
+              color: canSend ? Colors.white : _T.textMuted,
             ),
           ),
-        ));
+        ),
+      ),
+    );
   }
 }
-
 // ─── Avatars ──────────────────────────────────────────────────────────────────
 
 class _BotAvatar extends StatelessWidget {

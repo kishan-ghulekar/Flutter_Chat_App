@@ -24,15 +24,6 @@ class SearchCubit extends Cubit<SearchState> {
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey";
 
     Map<String, dynamic> bodyParams = {"contents": chatList};
-    // Map<String, dynamic> bodyParams = {
-    //   "contents": [
-    //     {
-    //       "parts": [
-    //         {"text": query},
-    //       ],
-    //     },
-    //   ],
-    // };
     var response = await http.post(
       Uri.parse(url),
       body: jsonEncode(bodyParams),
